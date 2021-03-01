@@ -44,9 +44,9 @@ const int relay_gpio_4 = 5;
 #error TOGGLE_PIN_3 is not specified
 #endif
 
-#define TOGGLE_PIN_4 16
-#ifndef TOGGLE_PIN_4
-#error TOGGLE_PIN_4 is not specified
+#define SENSOR_PIN 16
+#ifndef SENSOR_PIN
+#error SENSOR_PIN is not specified
 #endif
 
 #define ALLOWED_FACTORY_RESET_TIME 60000
@@ -110,6 +110,8 @@ homekit_characteristic_t lightbulb_on_4 = HOMEKIT_CHARACTERISTIC_(
     ON, true, .callback=HOMEKIT_CHARACTERISTIC_CALLBACK(lightbulb_on_4_callback)
 );
 
+homekit_characteristic_t occupancy_detected = HOMEKIT_CHARACTERISTIC_(OCCUPANCY_DETECTED, 0);
+
 
 void gpio_init() {
     gpio_enable(relay_gpio_1, GPIO_OUTPUT);
@@ -127,7 +129,6 @@ void gpio_init() {
     gpio_enable(TOGGLE_PIN_1, GPIO_INPUT);
     gpio_enable(TOGGLE_PIN_2, GPIO_INPUT);
     gpio_enable(TOGGLE_PIN_3, GPIO_INPUT);
-    gpio_enable(TOGGLE_PIN_4, GPIO_INPUT);
 }
 
 void lightbulb_on_1_callback(homekit_characteristic_t *_ch, homekit_value_t on, void *context) {
@@ -166,13 +167,6 @@ void toggle_callback_3(bool high, void *context) {
     lightbulb_on_3.value.bool_value = !lightbulb_on_3.value.bool_value;
     relay_write_3(lightbulb_on_3.value.bool_value);
     homekit_characteristic_notify(&lightbulb_on_3, lightbulb_on_3.value);
-}
-
-void toggle_callback_4(bool high, void *context) {
-    printf("toggle is %s\n", high ? "high" : "low");
-    lightbulb_on_4.value.bool_value = !lightbulb_on_4.value.bool_value;
-    relay_write_4(lightbulb_on_4.value.bool_value);
-    homekit_characteristic_notify(&lightbulb_on_4, lightbulb_on_4.value);
     reset_configuration();
 }
 
@@ -184,6 +178,11 @@ void light_identify(homekit_value_t _value) {
 
 void occupancy_identify(homekit_value_t _value) {
     printf("Occupancy identify\n");
+}
+
+void sensor_callback(bool high, void *context) {
+    occupancy_detected.value = HOMEKIT_UINT8(high ? 1 : 0);
+    homekit_characteristic_notify(&occupancy_detected, occupancy_detected.value);
 }
 
 
@@ -282,8 +281,26 @@ homekit_accessory_t *accessories[] = {
         }),
         NULL,
       }),
-      NULL
-    };
+        
+          HOMEKIT_ACCESSORY(.id=5, .category=homekit_accessory_category_sensor, .services=(homekit_service_t*[]) {
+              HOMEKIT_SERVICE(ACCESSORY_INFORMATION, .characteristics=(homekit_characteristic_t*[]) {
+                HOMEKIT_CHARACTERISTIC(NAME, "Sensor de Ocupação"),
+                &manufacturer,
+                &serial,
+                &model,
+                &revision,
+                HOMEKIT_CHARACTERISTIC(IDENTIFY, occupancy_identify),
+                  NULL
+              }),
+              HOMEKIT_SERVICE(OCCUPANCY_SENSOR, .characteristics=(homekit_characteristic_t*[]) {
+                  HOMEKIT_CHARACTERISTIC(NAME, "Sensor de Ocupação"),
+                  &occupancy_detected,
+                  NULL
+              }),
+              NULL
+          }),
+          NULL
+      };
 
 homekit_server_config_t config = {
         .accessories = accessories,
@@ -331,8 +348,8 @@ void user_init(void) {
         printf("Failed to initialize toggle 3 \n");
     }
 
-    if (toggle_create(TOGGLE_PIN_4, toggle_callback_4, NULL)) {
-        printf("Failed to initialize toggle 4 \n");
+    if (toggle_create(SENSOR_PIN, sensor_callback, NULL)) {
+        printf("Failed to initialize sensor\n");
     }
 
     int c_hash=ota_read_sysparam(&manufacturer.value.string_value,&serial.value.string_value,
